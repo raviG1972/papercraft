@@ -360,3 +360,39 @@
 .question-editor-content .resize-cursor {
   cursor: col-resize;
 }
+
+/* Image Word Wrap / Float Styles */
+.question-editor-content img.float-left {
+  float: left;
+  margin-right: 1rem;
+  margin-bottom: 0.5rem;
+  max-width: 50%;
+  clear: both;
+}
+
+.question-editor-content img.float-right {
+  float: right;
+  margin-left: 1rem;
+  margin-bottom: 0.5rem;
+  max-width: 50%;
+  clear: both;
+}
+
+.question-editor-content img.center-block {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  clear: both;
+}
+
+/* Clearfix for floated images */
+.question-editor-content p::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+
+/* Font Size support via inline style */
+.question-editor-content span[style*="font-size"] {
+  line-height: 1.5;
+}

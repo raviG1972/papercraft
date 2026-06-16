@@ -151,12 +151,18 @@ export function QuestionEditor({
   );
 
   const handleInsertImage = useCallback(
-    (url: string, alt: string, width?: number, height?: number) => {
+    (url: string, alt: string, width?: number, height?: number, floatClass?: string) => {
       if (!editor) return;
       editor
         .chain()
         .focus()
-        .setImage({ src: url, alt, width, height })
+        .setImage({
+          src: url,
+          alt,
+          width,
+          height,
+          ...(floatClass ? { class: floatClass } : {}),
+        })
         .run();
     },
     [editor]

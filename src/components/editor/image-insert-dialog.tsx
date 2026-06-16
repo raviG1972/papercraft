@@ -11,12 +11,28 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { ImageIcon, Link, Upload, X } from 'lucide-react';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { ImageIcon, Upload, X, AlignJustify, AlignLeft, AlignRight, AlignCenter } from 'lucide-react';
+
+type FloatToggle = '_inline' | 'float-left' | 'float-right' | 'center-block';
+
+const floatOptions: {
+  value: FloatToggle;
+  label: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  description: string;
+}[] = [
+  { value: '_inline', label: 'Inline', icon: AlignJustify, description: 'Image sits inline with text' },
+  { value: 'float-left', label: 'Float Left', icon: AlignLeft, description: 'Image floats left, text wraps right' },
+  { value: 'float-right', label: 'Float Right', icon: AlignRight, description: 'Image floats right, text wraps left' },
+  { value: 'center-block', label: 'Center', icon: AlignCenter, description: 'Image centered as a block element' },
+];
 
 interface ImageInsertDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onInsert: (url: string, alt: string, width?: number, height?: number) => void;
+  onInsert: (url: string, alt: string, width?: number, height?: number, floatClass?: string) => void;
 }
 
 export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertDialogProps) {
@@ -26,16 +42,8 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
   const [height, setHeight] = useState('');
   const [previewError, setPreviewError] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [floatToggle, setFloatToggle] = useState<FloatToggle>('_inline');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const isValidUrl = (s: string) => {
-    try {
-      new URL(s);
-      return true;
-    } catch {
-      return false;
-    }
-  };
 
   const handleInsert = () => {
     if (!url.trim()) return;
@@ -43,13 +51,15 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
       url.trim(),
       alt.trim() || 'Image',
       width ? parseInt(width) : undefined,
-      height ? parseInt(height) : undefined
+      height ? parseInt(height) : undefined,
+      floatToggle === '_inline' ? undefined : floatToggle
     );
     setUrl('');
     setAlt('');
     setWidth('');
     setHeight('');
     setPreviewError(false);
+    setFloatToggle('_inline');
     onOpenChange(false);
   };
 
@@ -81,7 +91,16 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { setPreviewError(false); } onOpenChange(o); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) {
+          setPreviewError(false);
+          setFloatToggle('_inline');
+        }
+        onOpenChange(o);
+      }}
+    >
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -101,14 +120,18 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
                 ? 'border-primary bg-primary/5'
                 : 'border-border hover:border-primary/50 hover:bg-muted/50'
             }`}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              Drag & drop an image, or <span className="text-primary font-medium">click to browse</span>
+              Drag & drop an image, or{' '}
+              <span className="text-primary font-medium">click to browse</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               PNG, JPG, GIF, SVG, WEBP
@@ -124,7 +147,9 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
 
           {/* URL input */}
           <div className="flex items-center gap-2">
-            <Label className="text-xs font-medium text-muted-foreground shrink-0">or URL:</Label>
+            <Label className="text-xs font-medium text-muted-foreground shrink-0">
+              or URL:
+            </Label>
             <Input
               placeholder="https://example.com/image.png"
               value={url}
@@ -146,7 +171,10 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
                 onError={() => setPreviewError(true)}
               />
               <button
-                onClick={() => { setUrl(''); setPreviewError(false); }}
+                onClick={() => {
+                  setUrl('');
+                  setPreviewError(false);
+                }}
                 className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
@@ -193,6 +221,41 @@ export function ImageInsertDialog({ open, onOpenChange, onInsert }: ImageInsertD
                 className="text-sm"
               />
             </div>
+          </div>
+
+          {/* Image Alignment / Word Wrap */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Alignment</Label>
+            <ToggleGroup
+              type="single"
+              value={floatToggle}
+              onValueChange={(val) => {
+                if (val) setFloatToggle(val as FloatToggle);
+              }}
+              variant="outline"
+              className="w-full"
+            >
+              {floatOptions.map((opt) => {
+                const Icon = opt.icon;
+                return (
+                  <Tooltip key={opt.value}>
+                    <TooltipTrigger asChild>
+                      <ToggleGroupItem
+                        value={opt.value}
+                        aria-label={opt.label}
+                        className="flex-1 gap-1.5 text-xs"
+                      >
+                        <Icon className="h-4 w-4" />
+                        <span className="hidden sm:inline">{opt.label}</span>
+                      </ToggleGroupItem>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>{opt.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </ToggleGroup>
           </div>
 
           {/* Actions */}

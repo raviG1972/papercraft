@@ -1,0 +1,1351 @@
+     1→'use client';
+     2→
+     3→import { useState, useCallback, useMemo } from 'react';
+     4→import { v4 as uuidv4 } from 'uuid';
+     5→import {
+     6→  DndContext,
+     7→  closestCenter,
+     8→  KeyboardSensor,
+     9→  PointerSensor,
+    10→  useSensor,
+    11→  useSensors,
+    12→  type DragEndEvent,
+    13→  DragOverlay,
+    14→} from '@dnd-kit/core';
+    15→import {
+    16→  arrayMove,
+    17→  SortableContext,
+    18→  verticalListSortingStrategy,
+    19→  useSortable,
+    20→  sortableKeyboardCoordinates,
+    21→} from '@dnd-kit/sortable';
+    22→import { CSS } from '@dnd-kit/utilities';
+    23→import { QuestionEditor } from '@/components/editor/question-editor';
+    24→import {
+    25→  Card,
+    26→  CardContent,
+    27→  CardHeader,
+    28→  CardTitle,
+    29→  CardDescription,
+    30→} from '@/components/ui/card';
+    31→import { Button } from '@/components/ui/button';
+    32→import { Input } from '@/components/ui/input';
+    33→import { Label } from '@/components/ui/label';
+    34→import { Textarea } from '@/components/ui/textarea';
+    35→import { Badge } from '@/components/ui/badge';
+    36→import { Separator } from '@/components/ui/separator';
+    37→import { ScrollArea } from '@/components/ui/scroll-area';
+    38→import {
+    39→  Select,
+    40→  SelectContent,
+    41→  SelectItem,
+    42→  SelectTrigger,
+    43→  SelectValue,
+    44→} from '@/components/ui/select';
+    45→import {
+    46→  Collapsible,
+    47→  CollapsibleContent,
+    48→  CollapsibleTrigger,
+    49→} from '@/components/ui/collapsible';
+    50→import {
+    51→  AlertDialog,
+    52→  AlertDialogAction,
+    53→  AlertDialogCancel,
+    54→  AlertDialogContent,
+    55→  AlertDialogDescription,
+    56→  AlertDialogFooter,
+    57→  AlertDialogHeader,
+    58→  AlertDialogTitle,
+    59→  AlertDialogTrigger,
+    60→} from '@/components/ui/alert-dialog';
+    61→import {
+    62→  ChevronDown,
+    63→  ChevronUp,
+    64→  Plus,
+    65→  Trash2,
+    66→  GripVertical,
+    67→  Settings,
+    68→  FileText,
+    69→  Layers,
+    70→  BarChart3,
+    71→  Copy,
+    72→  FolderPlus,
+    73→  Eye,
+    74→  EyeOff,
+    75→} from 'lucide-react';
+    76→
+    77→// ─────────────────────────────────────────────────────────────────
+    78→// Types
+    79→// ─────────────────────────────────────────────────────────────────
+    80→
+    81→export type QuestionType = 'mcq' | 'short' | 'long' | 'essay' | 'fill-blanks';
+    82→
+    83→export interface PaperSettings {
+    84→  title: string;
+    85→  subject: string;
+    86→  grade: string;
+    87→  duration: string;
+    88→  maxMarks: string;
+    89→  instructions: string;
+    90→}
+    91→
+    92→export interface Question {
+    93→  id: string;
+    94→  content: string;
+    95→  html: string;
+    96→  marks: number;
+    97→  type: QuestionType;
+    98→  sectionId?: string;
+    99→}
+   100→
+   101→export interface Section {
+   102→  id: string;
+   103→  title: string;
+   104→  instructions: string;
+   105→}
+   106→
+   107→export interface QuestionPaperComposerProps {
+   108→  initialSettings?: Partial<PaperSettings>;
+   109→  initialQuestions?: Question[];
+   110→  initialSections?: Section[];
+   111→  onSettingsChange?: (settings: PaperSettings) => void;
+   112→  onQuestionsChange?: (questions: Question[]) => void;
+   113→  onSectionsChange?: (sections: Section[]) => void;
+   114→}
+   115→
+   116→// ─────────────────────────────────────────────────────────────────
+   117→// Constants
+   118→// ─────────────────────────────────────────────────────────────────
+   119→
+   120→const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
+   121→  mcq: 'Multiple Choice',
+   122→  short: 'Short Answer',
+   123→  long: 'Long Answer',
+   124→  essay: 'Essay',
+   125→  'fill-blanks': 'Fill in the Blanks',
+   126→};
+   127→
+   128→const QUESTION_TYPE_COLORS: Record<QuestionType, string> = {
+   129→  mcq: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+   130→  short: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+   131→  long: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+   132→  essay: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
+   133→  'fill-blanks': 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+   134→};
+   135→
+   136→const DEFAULT_SETTINGS: PaperSettings = {
+   137→  title: '',
+   138→  subject: '',
+   139→  grade: '',
+   140→  duration: '3 Hours',
+   141→  maxMarks: '100',
+   142→  instructions: 'Answer all questions. Write neatly and legibly.',
+   143→};
+   144→
+   145→function createQuestion(sectionId?: string, type: QuestionType = 'short'): Question {
+   146→  return {
+   147→    id: uuidv4(),
+   148→    content: '',
+   149→    html: '',
+   150→    marks: type === 'mcq' ? 1 : type === 'short' ? 2 : type === 'fill-blanks' ? 1 : 5,
+   151→    type,
+   152→    sectionId,
+   153→  };
+   154→}
+   155→
+   156→function createSection(title: string = 'New Section'): Section {
+   157→  return {
+   158→    id: uuidv4(),
+   159→    title,
+   160→    instructions: '',
+   161→  };
+   162→}
+   163→
+   164→// ─────────────────────────────────────────────────────────────────
+   165→// Sortable Question Item
+   166→// ─────────────────────────────────────────────────────────────────
+   167→
+   168→interface SortableQuestionItemProps {
+   169→  question: Question;
+   170→  index: number;
+   171→  onUpdateQuestion: (id: string, updates: Partial<Question>) => void;
+   172→  onDeleteQuestion: (id: string) => void;
+   173→  onDuplicateQuestion: (id: string) => void;
+   174→  isDragging?: boolean;
+   175→}
+   176→
+   177→function SortableQuestionItem({
+   178→  question,
+   179→  index,
+   180→  onUpdateQuestion,
+   181→  onDeleteQuestion,
+   182→  onDuplicateQuestion,
+   183→  isDragging,
+   184→}: SortableQuestionItemProps) {
+   185→  const {
+   186→    attributes,
+   187→    listeners,
+   188→    setNodeRef,
+   189→    transform,
+   190→    transition,
+   191→    isDragging: isSortableDragging,
+   192→  } = useSortable({ id: question.id });
+   193→
+   194→  const style: React.CSSProperties = {
+   195→    transform: CSS.Transform.toString(transform),
+   196→    transition,
+   197→    opacity: isSortableDragging ? 0.5 : 1,
+   198→  };
+   199→
+   200→  return (
+   201→    <div ref={setNodeRef} style={style}>
+   202→      <Card className="group border-border shadow-sm hover:shadow-md transition-shadow">
+   203→        {/* Question meta bar */}
+   204→        <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 rounded-t-lg border-b border-border">
+   205→          {/* Drag handle */}
+   206→          <button
+   207→            className="touch-none cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+   208→            {...attributes}
+   209→            {...listeners}
+   210→            aria-label="Drag to reorder"
+   211→          >
+   212→            <GripVertical className="h-4 w-4" />
+   213→          </button>
+   214→
+   215→          {/* Question number badge */}
+   216→          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-primary text-primary-foreground font-bold text-xs shrink-0">
+   217→            {index + 1}
+   218→          </div>
+   219→
+   220→          {/* Question type selector */}
+   221→          <Select
+   222→            value={question.type}
+   223→            onValueChange={(value) =>
+   224→              onUpdateQuestion(question.id, { type: value as QuestionType })
+   225→            }
+   226→          >
+   227→            <SelectTrigger size="sm" className="h-7 text-xs w-auto min-w-[120px]">
+   228→              <SelectValue />
+   229→            </SelectTrigger>
+   230→            <SelectContent>
+   231→              {(Object.entries(QUESTION_TYPE_LABELS) as [QuestionType, string][]).map(
+   232→                ([key, label]) => (
+   233→                  <SelectItem key={key} value={key}>
+   234→                    {label}
+   235→                  </SelectItem>
+   236→                )
+   237→              )}
+   238→            </SelectContent>
+   239→          </Select>
+   240→
+   241→          {/* Question type badge */}
+   242→          <Badge
+   243→            variant="secondary"
+   244→            className={`text-[10px] font-medium px-1.5 py-0 ${QUESTION_TYPE_COLORS[question.type]}`}
+   245→          >
+   246→            {question.type.toUpperCase()}
+   247→          </Badge>
+   248→
+   249→          <div className="flex-1" />
+   250→
+   251→          {/* Marks input */}
+   252→          <div className="flex items-center gap-1.5">
+   253→            <Label htmlFor={`marks-${question.id}`} className="text-xs text-muted-foreground whitespace-nowrap">
+   254→              Marks:
+   255→            </Label>
+   256→            <Input
+   257→              id={`marks-${question.id}`}
+   258→              type="number"
+   259→              min={0}
+   260→              max={100}
+   261→              value={question.marks}
+   262→              onChange={(e) =>
+   263→                onUpdateQuestion(question.id, {
+   264→                  marks: Math.max(0, parseInt(e.target.value) || 0),
+   265→                })
+   266→              }
+   267→              className="h-7 w-16 text-center text-xs"
+   268→            />
+   269→          </div>
+   270→
+   271→          {/* Duplicate button */}
+   272→          <Button
+   273→            variant="ghost"
+   274→            size="icon"
+   275→            className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+   276→            onClick={() => onDuplicateQuestion(question.id)}
+   277→            aria-label="Duplicate question"
+   278→          >
+   279→            <Copy className="h-3.5 w-3.5" />
+   280→          </Button>
+   281→
+   282→          {/* Delete button with confirmation */}
+   283→          <AlertDialog>
+   284→            <AlertDialogTrigger asChild>
+   285→              <Button
+   286→                variant="ghost"
+   287→                size="icon"
+   288→                className="h-7 w-7 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+   289→                aria-label="Delete question"
+   290→              >
+   291→                <Trash2 className="h-3.5 w-3.5" />
+   292→              </Button>
+   293→            </AlertDialogTrigger>
+   294→            <AlertDialogContent>
+   295→              <AlertDialogHeader>
+   296→                <AlertDialogTitle>Delete Question {index + 1}?</AlertDialogTitle>
+   297→                <AlertDialogDescription>
+   298→                  This action cannot be undone. This will permanently remove the
+   299→                  question and its content from the paper.
+   300→                </AlertDialogDescription>
+   301→              </AlertDialogHeader>
+   302→              <AlertDialogFooter>
+   303→                <AlertDialogCancel>Cancel</AlertDialogCancel>
+   304→                <AlertDialogAction
+   305→                  variant="destructive"
+   306→                  onClick={() => onDeleteQuestion(question.id)}
+   307→                >
+   308→                  Delete
+   309→                </AlertDialogAction>
+   310→              </AlertDialogFooter>
+   311→            </AlertDialogContent>
+   312→          </AlertDialog>
+   313→        </div>
+   314→
+   315→        {/* Question editor content */}
+   316→        <CardContent className="p-0">
+   317→          <QuestionEditor
+   318→            key={question.id}
+   319→            content={question.content}
+   320→            questionNumber={index + 1}
+   321→            maxMarks={question.marks}
+   322→            showHeader={false}
+   323→            onChange={(content, html) =>
+   324→              onUpdateQuestion(question.id, { content, html })
+   325→            }
+   326→          />
+   327→        </CardContent>
+   328→      </Card>
+   329→    </div>
+   330→  );
+   331→}
+   332→
+   333→// ─────────────────────────────────────────────────────────────────
+   334→// Drag Overlay Component
+   335→// ─────────────────────────────────────────────────────────────────
+   336→
+   337→function DragOverlayItem({ question, index }: { question: Question; index: number }) {
+   338→  return (
+   339→    <Card className="shadow-2xl border-primary/30 rotate-2 opacity-90">
+   340→      <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 rounded-t-lg border-b border-primary/20">
+   341→        <div className="flex items-center justify-center h-7 w-7 rounded-md bg-primary text-primary-foreground font-bold text-xs shrink-0">
+   342→          {index + 1}
+   343→        </div>
+   344→        <Badge variant="secondary" className="text-xs">
+   345→          {QUESTION_TYPE_LABELS[question.type]}
+   346→        </Badge>
+   347→        <span className="text-xs text-muted-foreground">{question.marks} marks</span>
+   348→      </div>
+   349→      <CardContent className="p-3">
+   350→        <p className="text-sm text-muted-foreground italic">
+   351→          {question.html ? 'Moving question...' : 'Empty question'}
+   352→        </p>
+   353→      </CardContent>
+   354→    </Card>
+   355→  );
+   356→}
+   357→
+   358→// ─────────────────────────────────────────────────────────────────
+   359→// Paper Header / Settings
+   360→// ─────────────────────────────────────────────────────────────────
+   361→
+   362→interface PaperHeaderProps {
+   363→  settings: PaperSettings;
+   364→  onUpdateSettings: (updates: Partial<PaperSettings>) => void;
+   365→}
+   366→
+   367→function PaperHeader({ settings, onUpdateSettings }: PaperHeaderProps) {
+   368→  const [isOpen, setIsOpen] = useState(true);
+   369→
+   370→  return (
+   371→    <Card className="border-border shadow-sm">
+   372→      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+   373→        <CardHeader className="pb-0">
+   374→          <div className="flex items-center justify-between">
+   375→            <div className="flex items-center gap-3">
+   376→              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 text-primary">
+   377→                <Settings className="h-5 w-5" />
+   378→              </div>
+   379→              <div>
+   380→                <CardTitle className="text-base font-semibold">
+   381→                  Paper Settings
+   382→                </CardTitle>
+   383→                <CardDescription className="text-xs mt-0.5">
+   384→                  {settings.title
+   385→                    ? settings.title
+   386→                    : 'Set your paper title and details'}
+   387→                </CardDescription>
+   388→              </div>
+   389→            </div>
+   390→            <CollapsibleTrigger asChild>
+   391→              <Button variant="ghost" size="sm" className="gap-1 text-xs">
+   392→                {isOpen ? (
+   393→                  <>
+   394→                    <ChevronUp className="h-4 w-4" />
+   395→                    Hide
+   396→                  </>
+   397→                ) : (
+   398→                  <>
+   399→                    <ChevronDown className="h-4 w-4" />
+   400→                    Show
+   401→                  </>
+   402→                )}
+   403→              </Button>
+   404→            </CollapsibleTrigger>
+   405→          </div>
+   406→        </CardHeader>
+   407→
+   408→        <CollapsibleContent>
+   409→          <CardContent className="pt-4">
+   410→            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   411→              {/* Paper Title */}
+   412→              <div className="sm:col-span-2 lg:col-span-3">
+   413→                <Label htmlFor="paper-title" className="text-xs font-medium">
+   414→                  Paper Title
+   415→                </Label>
+   416→                <Input
+   417→                  id="paper-title"
+   418→                  placeholder="e.g., Final Examination — Mathematics"
+   419→                  value={settings.title}
+   420→                  onChange={(e) => onUpdateSettings({ title: e.target.value })}
+   421→                  className="mt-1.5"
+   422→                />
+   423→              </div>
+   424→
+   425→              {/* Subject */}
+   426→              <div>
+   427→                <Label htmlFor="paper-subject" className="text-xs font-medium">
+   428→                  Subject
+   429→                </Label>
+   430→                <Input
+   431→                  id="paper-subject"
+   432→                  placeholder="e.g., Mathematics"
+   433→                  value={settings.subject}
+   434→                  onChange={(e) => onUpdateSettings({ subject: e.target.value })}
+   435→                  className="mt-1.5"
+   436→                />
+   437→              </div>
+   438→
+   439→              {/* Class/Grade */}
+   440→              <div>
+   441→                <Label htmlFor="paper-grade" className="text-xs font-medium">
+   442→                  Class / Grade
+   443→                </Label>
+   444→                <Input
+   445→                  id="paper-grade"
+   446→                  placeholder="e.g., Grade 10"
+   447→                  value={settings.grade}
+   448→                  onChange={(e) => onUpdateSettings({ grade: e.target.value })}
+   449→                  className="mt-1.5"
+   450→                />
+   451→              </div>
+   452→
+   453→              {/* Duration */}
+   454→              <div>
+   455→                <Label htmlFor="paper-duration" className="text-xs font-medium">
+   456→                  Duration
+   457→                </Label>
+   458→                <Input
+   459→                  id="paper-duration"
+   460→                  placeholder="e.g., 3 Hours"
+   461→                  value={settings.duration}
+   462→                  onChange={(e) => onUpdateSettings({ duration: e.target.value })}
+   463→                  className="mt-1.5"
+   464→                />
+   465→              </div>
+   466→
+   467→              {/* Maximum Marks */}
+   468→              <div>
+   469→                <Label htmlFor="paper-max-marks" className="text-xs font-medium">
+   470→                  Maximum Marks
+   471→                </Label>
+   472→                <Input
+   473→                  id="paper-max-marks"
+   474→                  placeholder="e.g., 100"
+   475→                  value={settings.maxMarks}
+   476→                  onChange={(e) => onUpdateSettings({ maxMarks: e.target.value })}
+   477→                  className="mt-1.5"
+   478→                />
+   479→              </div>
+   480→
+   481→              {/* Empty spacer for grid alignment */}
+   482→              <div className="hidden lg:block" />
+   483→
+   484→              {/* Instructions */}
+   485→              <div className="sm:col-span-2 lg:col-span-3">
+   486→                <Label htmlFor="paper-instructions" className="text-xs font-medium">
+   487→                  General Instructions
+   488→                </Label>
+   489→                <Textarea
+   490→                  id="paper-instructions"
+   491→                  placeholder="e.g., Answer all questions. Write neatly and legibly."
+   492→                  value={settings.instructions}
+   493→                  onChange={(e) =>
+   494→                    onUpdateSettings({ instructions: e.target.value })
+   495→                  }
+   496→                  className="mt-1.5 min-h-[80px] resize-y"
+   497→                />
+   498→              </div>
+   499→            </div>
+   500→          </CardContent>
+   501→        </CollapsibleContent>
+   502→      </Collapsible>
+   503→    </Card>
+   504→  );
+   505→}
+   506→
+   507→// ─────────────────────────────────────────────────────────────────
+   508→// Summary Panel
+   509→// ─────────────────────────────────────────────────────────────────
+   510→
+   511→interface SummaryPanelProps {
+   512→  questions: Question[];
+   513→  sections: Section[];
+   514→  settings: PaperSettings;
+   515→}
+   516→
+   517→function SummaryPanel({ questions, sections, settings }: SummaryPanelProps) {
+   518→  const unsectioned = questions.filter((q) => !q.sectionId);
+   519→  const unsectionedMarks = unsectioned.reduce((s, q) => s + q.marks, 0);
+   520→
+   521→  const stats = useMemo(() => {
+   522→    const typeCounts: Record<QuestionType, number> = {
+   523→      mcq: 0,
+   524→      short: 0,
+   525→      long: 0,
+   526→      essay: 0,
+   527→      'fill-blanks': 0,
+   528→    };
+   529→    const typeMarks: Record<QuestionType, number> = {
+   530→      mcq: 0,
+   531→      short: 0,
+   532→      long: 0,
+   533→      essay: 0,
+   534→      'fill-blanks': 0,
+   535→    };
+   536→
+   537→    questions.forEach((q) => {
+   538→      typeCounts[q.type] += 1;
+   539→      typeMarks[q.type] += q.marks;
+   540→    });
+   541→
+   542→    const totalQuestions = questions.length;
+   543→    const totalMarks = questions.reduce((sum, q) => sum + q.marks, 0);
+   544→
+   545→    // Section breakdown
+   546→    const sectionStats = sections.map((section) => {
+   547→      const sectionQuestions = questions.filter(
+   548→        (q) => q.sectionId === section.id
+   549→      );
+   550→      return {
+   551→        section,
+   552→        questionCount: sectionQuestions.length,
+   553→        totalMarks: sectionQuestions.reduce((sum, q) => sum + q.marks, 0),
+   554→      };
+   555→    });
+   556→
+   557→    return { typeCounts, typeMarks, totalQuestions, totalMarks, sectionStats };
+   558→  }, [questions, sections]);
+   559→
+   560→  const maxMarksNum = parseInt(settings.maxMarks) || 0;
+   561→  const usagePercent =
+   562→    maxMarksNum > 0
+   563→      ? Math.min(100, Math.round((stats.totalMarks / maxMarksNum) * 100))
+   564→      : 0;
+   565→
+   566→  return (
+   567→    <Card className="border-border shadow-sm">
+   568→      <CardHeader className="pb-3">
+   569→        <div className="flex items-center gap-3">
+   570→          <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 text-primary">
+   571→            <BarChart3 className="h-5 w-5" />
+   572→          </div>
+   573→          <div>
+   574→            <CardTitle className="text-base font-semibold">Summary</CardTitle>
+   575→            <CardDescription className="text-xs mt-0.5">
+   576→              Overview of your question paper
+   577→            </CardDescription>
+   578→          </div>
+   579→        </div>
+   580→      </CardHeader>
+   581→
+   582→      <CardContent className="space-y-4">
+   583→        {/* Total stats */}
+   584→        <div className="grid grid-cols-2 gap-3">
+   585→          <div className="rounded-lg bg-muted/50 p-3 text-center">
+   586→            <p className="text-2xl font-bold text-primary">{stats.totalQuestions}</p>
+   587→            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mt-0.5">
+   588→              Questions
+   589→            </p>
+   590→          </div>
+   591→          <div className="rounded-lg bg-muted/50 p-3 text-center">
+   592→            <p className="text-2xl font-bold text-primary">{stats.totalMarks}</p>
+   593→            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mt-0.5">
+   594→              Total Marks
+   595→            </p>
+   596→          </div>
+   597→        </div>
+   598→
+   599→        {/* Marks usage bar */}
+   600→        {maxMarksNum > 0 && (
+   601→          <div className="space-y-1.5">
+   602→            <div className="flex items-center justify-between text-xs">
+   603→              <span className="text-muted-foreground">Marks Allocation</span>
+   604→              <span className="font-medium">
+   605→                {stats.totalMarks}/{maxMarksNum} ({usagePercent}%)
+   606→              </span>
+   607→            </div>
+   608→            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+   609→              <div
+   610→                className={`h-full rounded-full transition-all duration-500 ${
+   611→                  usagePercent > 100
+   612→                    ? 'bg-destructive'
+   613→                    : usagePercent > 90
+   614→                      ? 'bg-amber-500'
+   615→                      : 'bg-primary'
+   616→                }`}
+   617→                style={{ width: `${Math.min(100, usagePercent)}%` }}
+   618→              />
+   619→            </div>
+   620→          </div>
+   621→        )}
+   622→
+   623→        <Separator />
+   624→
+   625→        {/* Type breakdown */}
+   626→        <div className="space-y-2">
+   627→          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+   628→            By Type
+   629→          </p>
+   630→          <div className="space-y-1.5">
+   631→            {(Object.entries(QUESTION_TYPE_LABELS) as [QuestionType, string][]).map(
+   632→              ([type, label]) => {
+   633→                const count = stats.typeCounts[type];
+   634→                const marks = stats.typeMarks[type];
+   635→                if (count === 0) return null;
+   636→                return (
+   637→                  <div
+   638→                    key={type}
+   639→                    className="flex items-center justify-between py-1"
+   640→                  >
+   641→                    <div className="flex items-center gap-2">
+   642→                      <Badge
+   643→                        variant="secondary"
+   644→                        className={`text-[10px] font-medium px-1.5 py-0 ${QUESTION_TYPE_COLORS[type]}`}
+   645→                      >
+   646→                        {label}
+   647→                      </Badge>
+   648→                    </div>
+   649→                    <div className="flex items-center gap-2 text-xs">
+   650→                      <span className="text-muted-foreground">
+   651→                        {count} {count === 1 ? 'question' : 'questions'}
+   652→                      </span>
+   653→                      <span className="font-semibold text-foreground">
+   654→                        {marks} {marks === 1 ? 'mark' : 'marks'}
+   655→                      </span>
+   656→                    </div>
+   657→                  </div>
+   658→                );
+   659→              }
+   660→            )}
+   661→            {stats.totalQuestions === 0 && (
+   662→              <p className="text-xs text-muted-foreground text-center py-2 italic">
+   663→                No questions added yet
+   664→              </p>
+   665→            )}
+   666→          </div>
+   667→        </div>
+   668→
+   669→        {/* Section breakdown */}
+   670→        {sections.length > 0 && (
+   671→          <>
+   672→            <Separator />
+   673→            <div className="space-y-2">
+   674→              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+   675→                By Section
+   676→              </p>
+   677→              <div className="space-y-1.5">
+   678→                {stats.sectionStats.map(({ section, questionCount, totalMarks }) => (
+   679→                  <div
+   680→                    key={section.id}
+   681→                    className="flex items-center justify-between py-1"
+   682→                  >
+   683→                    <div className="flex items-center gap-2">
+   684→                      <Layers className="h-3 w-3 text-muted-foreground" />
+   685→                      <span className="text-xs font-medium">{section.title}</span>
+   686→                    </div>
+   687→                    <div className="flex items-center gap-2 text-xs">
+   688→                      <span className="text-muted-foreground">
+   689→                        {questionCount} Qs
+   690→                      </span>
+   691→                      <span className="font-semibold text-foreground">
+   692→                        {totalMarks} marks
+   693→                      </span>
+   694→                    </div>
+   695→                  </div>
+   696→                ))}
+   697→                {/* Unsectioned questions */}
+   698→                {unsectioned.length > 0 && (
+   699→                  <div className="flex items-center justify-between py-1">
+   700→                    <div className="flex items-center gap-2">
+   701→                      <FileText className="h-3 w-3 text-muted-foreground" />
+   702→                      <span className="text-xs font-medium text-muted-foreground">
+   703→                        Ungrouped
+   704→                      </span>
+   705→                    </div>
+   706→                    <div className="flex items-center gap-2 text-xs">
+   707→                      <span className="text-muted-foreground">
+   708→                        {unsectioned.length} Qs
+   709→                      </span>
+   710→                      <span className="font-semibold text-foreground">
+   711→                        {unsectionedMarks} marks
+   712→                      </span>
+   713→                    </div>
+   714→                  </div>
+   715→                )}
+   716→              </div>
+   717→            </div>
+   718→          </>
+   719→        )}
+   720→      </CardContent>
+   721→    </Card>
+   722→  );
+   723→}
+   724→
+   725→// ─────────────────────────────────────────────────────────────────
+   726→// Section Card
+   727→// ─────────────────────────────────────────────────────────────────
+   728→
+   729→interface SectionCardProps {
+   730→  section: Section;
+   731→  questions: Question[];
+   732→  globalQuestionIndexOffset: number;
+   733→  sensors: ReturnType<typeof useSensors>;
+   734→  onUpdateSection: (id: string, updates: Partial<Section>) => void;
+   735→  onDeleteSection: (id: string) => void;
+   736→  onUpdateQuestion: (id: string, updates: Partial<Question>) => void;
+   737→  onDeleteQuestion: (id: string) => void;
+   738→  onDuplicateQuestion: (id: string) => void;
+   739→  onAddQuestion: (sectionId?: string) => void;
+   740→  onDragEnd: (event: DragEndEvent) => void;
+   741→  activeId: string | null;
+   742→}
+   743→
+   744→function SectionCard({
+   745→  section,
+   746→  questions,
+   747→  globalQuestionIndexOffset,
+   748→  sensors,
+   749→  onUpdateSection,
+   750→  onDeleteSection,
+   751→  onUpdateQuestion,
+   752→  onDeleteQuestion,
+   753→  onDuplicateQuestion,
+   754→  onAddQuestion,
+   755→  onDragEnd,
+   756→  activeId,
+   757→}: SectionCardProps) {
+   758→  const [isOpen, setIsOpen] = useState(true);
+   759→
+   760→  const sectionQuestions = questions.filter((q) => q.sectionId === section.id);
+   761→  const sectionMarks = sectionQuestions.reduce((s, q) => s + q.marks, 0);
+   762→
+   763→  return (
+   764→    <Card className="border-border shadow-sm">
+   765→      <div className="px-4 py-3 bg-muted/30 rounded-t-lg border-b border-border">
+   766→        <div className="flex items-center justify-between gap-2">
+   767→          <div className="flex items-center gap-2 flex-1 min-w-0">
+   768→            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary/10 text-primary shrink-0">
+   769→              <Layers className="h-4 w-4" />
+   770→            </div>
+   771→            <div className="flex-1 min-w-0">
+   772→              <Input
+   773→                value={section.title}
+   774→                onChange={(e) =>
+   775→                  onUpdateSection(section.id, { title: e.target.value })
+   776→                }
+   777→                placeholder="Section title..."
+   778→                className="h-7 text-sm font-semibold border-0 bg-transparent p-0 focus-visible:ring-0 shadow-none"
+   779→              />
+   780→              <div className="flex items-center gap-2 mt-0.5">
+   781→                <span className="text-[10px] text-muted-foreground">
+   782→                  {sectionQuestions.length} questions
+   783→                </span>
+   784→                <span className="text-[10px] text-muted-foreground">•</span>
+   785→                <span className="text-[10px] text-muted-foreground">
+   786→                  {sectionMarks} marks
+   787→                </span>
+   788→              </div>
+   789→            </div>
+   790→          </div>
+   791→
+   792→          <div className="flex items-center gap-1 shrink-0">
+   793→            {/* Section instructions toggle */}
+   794→            <Button
+   795→              variant="ghost"
+   796→              size="sm"
+   797→              className="h-7 text-xs gap-1"
+   798→              onClick={() => setIsOpen(!isOpen)}
+   799→            >
+   800→              {isOpen ? (
+   801→                <>
+   802→                  <EyeOff className="h-3.5 w-3.5" />
+   803→                  <span className="hidden sm:inline">Hide</span>
+   804→                </>
+   805→              ) : (
+   806→                <>
+   807→                  <Eye className="h-3.5 w-3.5" />
+   808→                  <span className="hidden sm:inline">Show</span>
+   809→                </>
+   810→              )}
+   811→            </Button>
+   812→
+   813→            {/* Delete section */}
+   814→            <AlertDialog>
+   815→              <AlertDialogTrigger asChild>
+   816→                <Button
+   817→                  variant="ghost"
+   818→                  size="icon"
+   819→                  className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+   820→                  aria-label="Delete section"
+   821→                >
+   822→                  <Trash2 className="h-3.5 w-3.5" />
+   823→                </Button>
+   824→              </AlertDialogTrigger>
+   825→              <AlertDialogContent>
+   826→                <AlertDialogHeader>
+   827→                  <AlertDialogTitle>Delete &quot;{section.title}&quot;?</AlertDialogTitle>
+   828→                  <AlertDialogDescription>
+   829→                    This will remove the section and all {sectionQuestions.length}{' '}
+   830→                    questions within it. This action cannot be undone.
+   831→                  </AlertDialogDescription>
+   832→                </AlertDialogHeader>
+   833→                <AlertDialogFooter>
+   834→                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+   835→                  <AlertDialogAction
+   836→                    variant="destructive"
+   837→                    onClick={() => onDeleteSection(section.id)}
+   838→                  >
+   839→                    Delete Section
+   840→                  </AlertDialogAction>
+   841→                </AlertDialogFooter>
+   842→              </AlertDialogContent>
+   843→            </AlertDialog>
+   844→          </div>
+   845→        </div>
+   846→
+   847→        {/* Section instructions (collapsible) */}
+   848→        {isOpen && (
+   849→          <div className="mt-2">
+   850→            <Textarea
+   851→              value={section.instructions}
+   852→              onChange={(e) =>
+   853→                onUpdateSection(section.id, { instructions: e.target.value })
+   854→              }
+   855→              placeholder="Section instructions (optional)..."
+   856→              className="min-h-[50px] resize-y text-xs"
+   857→            />
+   858→          </div>
+   859→        )}
+   860→      </div>
+   861→
+   862→      {/* Questions list */}
+   863→      <CardContent className="p-3 space-y-3">
+   864→        {sectionQuestions.length > 0 ? (
+   865→          <DndContext
+   866→            sensors={sensors}
+   867→            collisionDetection={closestCenter}
+   868→            onDragEnd={onDragEnd}
+   869→          >
+   870→            <SortableContext
+   871→              items={sectionQuestions.map((q) => q.id)}
+   872→              strategy={verticalListSortingStrategy}
+   873→            >
+   874→              {sectionQuestions.map((question, idx) => (
+   875→                <SortableQuestionItem
+   876→                  key={question.id}
+   877→                  question={question}
+   878→                  index={globalQuestionIndexOffset + idx}
+   879→                  onUpdateQuestion={onUpdateQuestion}
+   880→                  onDeleteQuestion={onDeleteQuestion}
+   881→                  onDuplicateQuestion={onDuplicateQuestion}
+   882→                />
+   883→              ))}
+   884→            </SortableContext>
+   885→            <DragOverlay>
+   886→              {activeId ? (
+   887→                <DragOverlayItem
+   888→                  question={
+   889→                    sectionQuestions.find((q) => q.id === activeId) ?? {
+   890→                      id: '',
+   891→                      content: '',
+   892→                      html: '',
+   893→                      marks: 0,
+   894→                      type: 'short',
+   895→                    }
+   896→                  }
+   897→                  index={0}
+   898→                />
+   899→              ) : null}
+   900→            </DragOverlay>
+   901→          </DndContext>
+   902→        ) : (
+   903→          <div className="flex flex-col items-center justify-center py-8 text-center">
+   904→            <FileText className="h-8 w-8 text-muted-foreground/40 mb-2" />
+   905→            <p className="text-sm text-muted-foreground">
+   906→              No questions in this section
+   907→            </p>
+   908→            <p className="text-xs text-muted-foreground/70 mt-1">
+   909→              Click the button below to add one
+   910→            </p>
+   911→          </div>
+   912→        )}
+   913→
+   914→        <Button
+   915→          variant="outline"
+   916→          size="sm"
+   917→          className="w-full gap-1.5 border-dashed"
+   918→          onClick={() => onAddQuestion(section.id)}
+   919→        >
+   920→          <Plus className="h-4 w-4" />
+   921→          Add Question to Section
+   922→        </Button>
+   923→      </CardContent>
+   924→    </Card>
+   925→  );
+   926→}
+   927→
+   928→// ─────────────────────────────────────────────────────────────────
+   929→// Main Component
+   930→// ─────────────────────────────────────────────────────────────────
+   931→
+   932→export function QuestionPaperComposer({
+   933→  initialSettings,
+   934→  initialQuestions = [],
+   935→  initialSections = [],
+   936→  onSettingsChange,
+   937→  onQuestionsChange,
+   938→  onSectionsChange,
+   939→}: QuestionPaperComposerProps) {
+   940→  // ── State ──
+   941→  const [settings, setSettings] = useState<PaperSettings>({
+   942→    ...DEFAULT_SETTINGS,
+   943→    ...initialSettings,
+   944→  });
+   945→  const [questions, setQuestions] = useState<Question[]>(initialQuestions);
+   946→  const [sections, setSections] = useState<Section[]>(initialSections);
+   947→  const [activeId, setActiveId] = useState<string | null>(null);
+   948→  const [showSections, setShowSections] = useState(initialSections.length > 0);
+   949→
+   950→  // ── Sensors ──
+   951→  const sensors = useSensors(
+   952→    useSensor(PointerSensor, {
+   953→      activationConstraint: {
+   954→        distance: 5,
+   955→      },
+   956→    }),
+   957→    useSensor(KeyboardSensor, {
+   958→      coordinateGetter: sortableKeyboardCoordinates,
+   959→    })
+   960→  );
+   961→
+   962→  // ── Handlers ──
+   963→  const handleUpdateSettings = useCallback(
+   964→    (updates: Partial<PaperSettings>) => {
+   965→      setSettings((prev) => {
+   966→        const next = { ...prev, ...updates };
+   967→        onSettingsChange?.(next);
+   968→        return next;
+   969→      });
+   970→    },
+   971→    [onSettingsChange]
+   972→  );
+   973→
+   974→  const handleUpdateQuestion = useCallback(
+   975→    (id: string, updates: Partial<Question>) => {
+   976→      setQuestions((prev) => {
+   977→        const next = prev.map((q) => (q.id === id ? { ...q, ...updates } : q));
+   978→        onQuestionsChange?.(next);
+   979→        return next;
+   980→      });
+   981→    },
+   982→    [onQuestionsChange]
+   983→  );
+   984→
+   985→  const handleDeleteQuestion = useCallback(
+   986→    (id: string) => {
+   987→      setQuestions((prev) => {
+   988→        const next = prev.filter((q) => q.id !== id);
+   989→        onQuestionsChange?.(next);
+   990→        return next;
+   991→      });
+   992→    },
+   993→    [onQuestionsChange]
+   994→  );
+   995→
+   996→  const handleDuplicateQuestion = useCallback(
+   997→    (id: string) => {
+   998→      setQuestions((prev) => {
+   999→        const index = prev.findIndex((q) => q.id === id);
+  1000→        if (index === -1) return prev;
+  1001→        const original = prev[index];
+  1002→        const duplicate: Question = {
+  1003→          ...original,
+  1004→          id: uuidv4(),
+  1005→          content: original.content,
+  1006→          html: original.html,
+  1007→        };
+  1008→        const next = [...prev];
+  1009→        next.splice(index + 1, 0, duplicate);
+  1010→        onQuestionsChange?.(next);
+  1011→        return next;
+  1012→      });
+  1013→    },
+  1014→    [onQuestionsChange]
+  1015→  );
+  1016→
+  1017→  const handleAddQuestion = useCallback(
+  1018→    (sectionId?: string) => {
+  1019→      const newQuestion = createQuestion(sectionId);
+  1020→      setQuestions((prev) => {
+  1021→        const next = [...prev, newQuestion];
+  1022→        onQuestionsChange?.(next);
+  1023→        return next;
+  1024→      });
+  1025→    },
+  1026→    [onQuestionsChange]
+  1027→  );
+  1028→
+  1029→  const handleAddSection = useCallback(() => {
+  1030→    const newSection = createSection(
+  1031→      `Section ${String.fromCharCode(65 + sections.length)}`
+  1032→    );
+  1033→    setSections((prev) => {
+  1034→      const next = [...prev, newSection];
+  1035→      onSectionsChange?.(next);
+  1036→      return next;
+  1037→    });
+  1038→  }, [sections.length, onSectionsChange]);
+  1039→
+  1040→  const handleUpdateSection = useCallback(
+  1041→    (id: string, updates: Partial<Section>) => {
+  1042→      setSections((prev) => {
+  1043→        const next = prev.map((s) => (s.id === id ? { ...s, ...updates } : s));
+  1044→        onSectionsChange?.(next);
+  1045→        return next;
+  1046→      });
+  1047→    },
+  1048→    [onSectionsChange]
+  1049→  );
+  1050→
+  1051→  const handleDeleteSection = useCallback(
+  1052→    (id: string) => {
+  1053→      setSections((prev) => {
+  1054→        const next = prev.filter((s) => s.id !== id);
+  1055→        onSectionsChange?.(next);
+  1056→        return next;
+  1057→      });
+  1058→      // Also remove questions in that section
+  1059→      setQuestions((prev) => {
+  1060→        const next = prev.filter((q) => q.sectionId !== id);
+  1061→        onQuestionsChange?.(next);
+  1062→        return next;
+  1063→      });
+  1064→    },
+  1065→    [onSectionsChange, onQuestionsChange]
+  1066→  );
+  1067→
+  1068→  // ── DnD handlers (for ungrouped questions) ──
+  1069→  const handleDragEnd = useCallback(
+  1070→    (event: DragEndEvent) => {
+  1071→      const { active, over } = event;
+  1072→      setActiveId(null);
+  1073→
+  1074→      if (!over || active.id === over.id) return;
+  1075→
+  1076→      setQuestions((prev) => {
+  1077→        const oldIndex = prev.findIndex((q) => q.id === active.id);
+  1078→        const newIndex = prev.findIndex((q) => q.id === over.id);
+  1079→        const next = arrayMove(prev, oldIndex, newIndex);
+  1080→        onQuestionsChange?.(next);
+  1081→        return next;
+  1082→      });
+  1083→    },
+  1084→    [onQuestionsChange]
+  1085→  );
+  1086→
+  1087→  const handleDragStart = useCallback(({ active }: { active: { id: string | number } }) => {
+  1088→    setActiveId(String(active.id));
+  1089→  }, []);
+  1090→
+  1091→  // ── Computed ──
+  1092→  const unsectionedQuestions = questions.filter((q) => !q.sectionId);
+  1093→
+  1094→  // Global question index map for numbering
+  1095→  const getGlobalIndex = useCallback(
+  1096→    (questionId: string): number => {
+  1097→      return questions.findIndex((q) => q.id === questionId);
+  1098→    },
+  1099→    [questions]
+  1100→  );
+  1101→
+  1102→  return (
+  1103→    <div className="space-y-6">
+  1104→      {/* ── Paper Settings ── */}
+  1105→      <PaperHeader settings={settings} onUpdateSettings={handleUpdateSettings} />
+  1106→
+  1107→      {/* ── Main Content Grid ── */}
+  1108→      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+  1109→        {/* ── Left: Questions ── */}
+  1110→        <div className="space-y-6">
+  1111→          {/* Sections Mode Toggle */}
+  1112→          <div className="flex items-center justify-between">
+  1113→            <div className="flex items-center gap-2">
+  1114→              <Button
+  1115→                variant={showSections ? 'default' : 'outline'}
+  1116→                size="sm"
+  1117→                className="gap-1.5 text-xs"
+  1118→                onClick={() => setShowSections(true)}
+  1119→              >
+  1120→                <Layers className="h-3.5 w-3.5" />
+  1121→                Sections
+  1122→              </Button>
+  1123→              <Button
+  1124→                variant={!showSections ? 'default' : 'outline'}
+  1125→                size="sm"
+  1126→                className="gap-1.5 text-xs"
+  1127→                onClick={() => setShowSections(false)}
+  1128→              >
+  1129→                <FileText className="h-3.5 w-3.5" />
+  1130→                Flat List
+  1131→              </Button>
+  1132→            </div>
+  1133→          </div>
+  1134→
+  1135→          {showSections ? (
+  1136→            /* ── Sections View ── */
+  1137→            <div className="space-y-4">
+  1138→              {sections.map((section) => {
+  1139→                // Calculate the global index offset for this section's questions
+  1140→                let offset = 0;
+  1141→                const sectionIndex = sections.findIndex(
+  1142→                  (s) => s.id === section.id
+  1143→                );
+  1144→                for (let i = 0; i < sectionIndex; i++) {
+  1145→                  offset += questions.filter(
+  1146→                    (q) => q.sectionId === sections[i].id
+  1147→                  ).length;
+  1148→                }
+  1149→                // Add unsectioned questions count if they come first
+  1150→                if (unsectionedQuestions.length > 0) {
+  1151→                  offset += unsectionedQuestions.length;
+  1152→                }
+  1153→
+  1154→                return (
+  1155→                  <SectionCard
+  1156→                    key={section.id}
+  1157→                    section={section}
+  1158→                    questions={questions}
+  1159→                    globalQuestionIndexOffset={offset}
+  1160→                    sensors={sensors}
+  1161→                    onUpdateSection={handleUpdateSection}
+  1162→                    onDeleteSection={handleDeleteSection}
+  1163→                    onUpdateQuestion={handleUpdateQuestion}
+  1164→                    onDeleteQuestion={handleDeleteQuestion}
+  1165→                    onDuplicateQuestion={handleDuplicateQuestion}
+  1166→                    onAddQuestion={handleAddQuestion}
+  1167→                    onDragEnd={handleDragEnd}
+  1168→                    activeId={activeId}
+  1169→                  />
+  1170→                );
+  1171→              })}
+  1172→
+  1173→              {/* Ungrouped questions shown in sections mode */}
+  1174→              {unsectionedQuestions.length > 0 && (
+  1175→                <Card className="border-border shadow-sm">
+  1176→                  <div className="px-4 py-2 bg-muted/20 rounded-t-lg border-b border-border">
+  1177→                    <div className="flex items-center gap-2">
+  1178→                      <FileText className="h-4 w-4 text-muted-foreground" />
+  1179→                      <span className="text-xs font-medium text-muted-foreground">
+  1180→                        Ungrouped Questions ({unsectionedQuestions.length})
+  1181→                      </span>
+  1182→                    </div>
+  1183→                  </div>
+  1184→                  <CardContent className="p-3 space-y-3">
+  1185→                    <DndContext
+  1186→                      sensors={sensors}
+  1187→                      collisionDetection={closestCenter}
+  1188→                      onDragEnd={handleDragEnd}
+  1189→                      onDragStart={handleDragStart}
+  1190→                    >
+  1191→                      <SortableContext
+  1192→                        items={unsectionedQuestions.map((q) => q.id)}
+  1193→                        strategy={verticalListSortingStrategy}
+  1194→                      >
+  1195→                        {unsectionedQuestions.map((question, idx) => (
+  1196→                          <SortableQuestionItem
+  1197→                            key={question.id}
+  1198→                            question={question}
+  1199→                            index={idx}
+  1200→                            onUpdateQuestion={handleUpdateQuestion}
+  1201→                            onDeleteQuestion={handleDeleteQuestion}
+  1202→                            onDuplicateQuestion={handleDuplicateQuestion}
+  1203→                          />
+  1204→                        ))}
+  1205→                      </SortableContext>
+  1206→                      <DragOverlay>
+  1207→                        {activeId ? (
+  1208→                          <DragOverlayItem
+  1209→                            question={
+  1210→                              unsectionedQuestions.find(
+  1211→                                (q) => q.id === activeId
+  1212→                              ) ?? {
+  1213→                                id: '',
+  1214→                                content: '',
+  1215→                                html: '',
+  1216→                                marks: 0,
+  1217→                                type: 'short',
+  1218→                              }
+  1219→                            }
+  1220→                            index={0}
+  1221→                          />
+  1222→                        ) : null}
+  1223→                      </DragOverlay>
+  1224→                    </DndContext>
+  1225→                  </CardContent>
+  1226→                </Card>
+  1227→              )}
+  1228→
+  1229→              {/* Add Section Button */}
+  1230→              <Button
+  1231→                variant="outline"
+  1232→                size="sm"
+  1233→                className="w-full gap-1.5 border-dashed"
+  1234→                onClick={handleAddSection}
+  1235→              >
+  1236→                <FolderPlus className="h-4 w-4" />
+  1237→                Add Section
+  1238→              </Button>
+  1239→            </div>
+  1240→          ) : (
+  1241→            /* ── Flat List View ── */
+  1242→            <>
+  1243→              {questions.length > 0 ? (
+  1244→                <DndContext
+  1245→                  sensors={sensors}
+  1246→                  collisionDetection={closestCenter}
+  1247→                  onDragEnd={handleDragEnd}
+  1248→                  onDragStart={handleDragStart}
+  1249→                >
+  1250→                  <SortableContext
+  1251→                    items={questions.map((q) => q.id)}
+  1252→                    strategy={verticalListSortingStrategy}
+  1253→                  >
+  1254→                    <div className="space-y-3">
+  1255→                      {questions.map((question, idx) => (
+  1256→                        <SortableQuestionItem
+  1257→                          key={question.id}
+  1258→                          question={question}
+  1259→                          index={idx}
+  1260→                          onUpdateQuestion={handleUpdateQuestion}
+  1261→                          onDeleteQuestion={handleDeleteQuestion}
+  1262→                          onDuplicateQuestion={handleDuplicateQuestion}
+  1263→                        />
+  1264→                      ))}
+  1265→                    </div>
+  1266→                  </SortableContext>
+  1267→                  <DragOverlay>
+  1268→                    {activeId ? (
+  1269→                      <DragOverlayItem
+  1270→                        question={
+  1271→                          questions.find((q) => q.id === activeId) ?? {
+  1272→                            id: '',
+  1273→                            content: '',
+  1274→                            html: '',
+  1275→                            marks: 0,
+  1276→                            type: 'short',
+  1277→                          }
+  1278→                        }
+  1279→                        index={getGlobalIndex(activeId)}
+  1280→                      />
+  1281→                    ) : null}
+  1282→                  </DragOverlay>
+  1283→                </DndContext>
+  1284→              ) : (
+  1285→                <Card className="border-dashed border-2">
+  1286→                  <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+  1287→                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-muted mb-4">
+  1288→                      <FileText className="h-6 w-6 text-muted-foreground" />
+  1289→                    </div>
+  1290→                    <p className="text-sm font-medium text-foreground">
+  1291→                      No questions yet
+  1292→                    </p>
+  1293→                    <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+  1294→                      Start building your question paper by adding your first
+  1295→                      question below.
+  1296→                    </p>
+  1297→                  </CardContent>
+  1298→                </Card>
+  1299→              )}
+  1300→
+  1301→              {/* Add Question Button */}
+  1302→              <Button
+  1303→                size="lg"
+  1304→                className="w-full gap-2"
+  1305→                onClick={() => handleAddQuestion()}
+  1306→              >
+  1307→                <Plus className="h-5 w-5" />
+  1308→                Add Question
+  1309→              </Button>
+  1310→            </>
+  1311→          )}
+  1312→
+  1313→          {/* Always-visible Add Question button in sections mode too */}
+  1314→          {showSections && (
+  1315→            <Button
+  1316→              size="lg"
+  1317→              className="w-full gap-2"
+  1318→              onClick={() => handleAddQuestion()}
+  1319→            >
+  1320→              <Plus className="h-5 w-5" />
+  1321→              Add Question (Ungrouped)
+  1322→            </Button>
+  1323→          )}
+  1324→        </div>
+  1325→
+  1326→        {/* ── Right: Summary Sidebar (desktop only) ── */}
+  1327→        <div className="hidden lg:block">
+  1328→          <div className="sticky top-20">
+  1329→            <ScrollArea className="max-h-[calc(100vh-6rem)]">
+  1330→              <SummaryPanel
+  1331→                questions={questions}
+  1332→                sections={sections}
+  1333→                settings={settings}
+  1334→              />
+  1335→            </ScrollArea>
+  1336→          </div>
+  1337→        </div>
+  1338→      </div>
+  1339→
+  1340→      {/* ── Mobile Summary (below content) ── */}
+  1341→      <div className="lg:hidden">
+  1342→        <SummaryPanel
+  1343→          questions={questions}
+  1344→          sections={sections}
+  1345→          settings={settings}
+  1346→        />
+  1347→      </div>
+  1348→    </div>
+  1349→  );
+  1350→}
+  1351→
