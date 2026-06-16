@@ -50,5 +50,16 @@ test
 prompt
 
 server.log
+
+# Local dev only
+/zscripts/
+/mini-services/
+Caddyfile
+examples/
+download/
+tool-results/
+db/*.db
+db/*.db-journal
+
 # Skills directory
 /skills/
