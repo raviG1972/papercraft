@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { FontFamilyPicker } from './font-family-picker';
 import { Separator } from '@/components/ui/separator';
 import {
   Popover,
@@ -119,11 +120,7 @@ const COLOR_SWATCHES = [
   { name: 'White', value: '#FFFFFF' },
 ];
 
-const FONT_FAMILIES = [
-  { label: 'Default', value: 'sans' },
-  { label: 'Serif', value: 'serif' },
-  { label: 'Monospace', value: 'monospace' },
-];
+
 
 export function EditorToolbar({ editor, onOpenMathDialog, onOpenImageDialog }: EditorToolbarProps) {
   if (!editor) return null;
@@ -145,9 +142,7 @@ export function EditorToolbar({ editor, onOpenMathDialog, onOpenImageDialog }: E
   const currentFontSize = FONT_SIZES.find((size) =>
     editor.isActive('textStyle', { fontSize: `${size}px` }),
   );
-  const currentFontFamily = FONT_FAMILIES.find((f) =>
-    editor.isActive('textStyle', { fontFamily: f.value }),
-  );
+
 
   const setFontSize = (size: number) => {
     editor
@@ -155,10 +150,6 @@ export function EditorToolbar({ editor, onOpenMathDialog, onOpenImageDialog }: E
       .focus()
       .setMark('textStyle', { fontSize: `${size}px` })
       .run();
-  };
-
-  const setFontFamily = (family: string) => {
-    editor.chain().focus().setFontFamily(family).run();
   };
 
   const setTextColor = (color: string) => {
@@ -237,24 +228,8 @@ export function EditorToolbar({ editor, onOpenMathDialog, onOpenImageDialog }: E
 
       <ToolbarSeparator />
 
-      {/* Font Family Selector */}
-      <Select
-        value={currentFontFamily?.value ?? 'sans'}
-        onValueChange={setFontFamily}
-      >
-        <SelectTrigger className="h-8 w-[110px] text-xs font-medium">
-          <SelectValue placeholder="Font" />
-        </SelectTrigger>
-        <SelectContent>
-          {FONT_FAMILIES.map((font) => (
-            <SelectItem key={font.value} value={font.value}>
-              <span style={{ fontFamily: font.value === 'sans' ? 'sans-serif' : font.value }} className="text-xs">
-                {font.label}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* Font Family Picker with Upload */}
+      <FontFamilyPicker editor={editor} />
 
       {/* Font Size Selector */}
       <Select

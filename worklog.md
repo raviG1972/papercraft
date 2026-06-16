@@ -88,3 +88,25 @@ Stage Summary:
 - All features verified end-to-end via Agent Browser
 - Lint passes clean
 - Dev server compiles without errors
+
+---
+Task ID: custom-font-upload
+Agent: Main
+Task: Add custom font upload and display in font dropdown
+
+Work Log:
+- Created Zustand store at src/lib/custom-fonts-store.ts for shared custom font state
+- Created FontFamilyPicker component replacing the old Select-based font dropdown
+- Expanded built-in fonts from 3 to 10 (Default, Serif, Monospace, Georgia, Times New Roman, Courier New, Verdana, Trebuchet MS, Comic Sans MS, Impact)
+- Added "Upload Custom Font" button at bottom of font picker using Popover
+- Used browser FontFace API to dynamically register uploaded fonts
+- Supports .ttf, .otf, .woff, .woff2 file formats
+- Added per-custom-font remove button (X) on hover
+- Custom fonts section appears with count header when fonts are uploaded
+- Fixed missing lucide icon (FontFamily → ALargeSmall)
+- Verified: popover opens, shows all fonts, selection works, upload button present
+
+Stage Summary:
+- New files: src/lib/custom-fonts-store.ts, src/components/editor/font-family-picker.tsx
+- Modified: src/components/editor/editor-toolbar.tsx (replaced Select with FontFamilyPicker)
+- Lint passes, dev server compiles, Agent Browser verified all interactions
