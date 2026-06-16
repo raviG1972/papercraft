@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { FontFamilyPicker } from './font-family-picker';
+import { LanguageSelector } from './language-selector';
 import { Separator } from '@/components/ui/separator';
 import {
   Popover,
@@ -225,6 +226,11 @@ export function EditorToolbar({ editor, onOpenMathDialog, onOpenImageDialog }: E
           </SelectItem>
         </SelectContent>
       </Select>
+
+      <ToolbarSeparator />
+
+      {/* Language Selector (EN / Sinhala / Tamil) */}
+      <LanguageSelector />
 
       <ToolbarSeparator />
 

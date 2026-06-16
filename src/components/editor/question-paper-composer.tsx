@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { useInputMethodStore } from '@/lib/input-method-store';
 import {
   DndContext,
   closestCenter,
@@ -72,6 +73,8 @@ import {
   FolderPlus,
   Eye,
   EyeOff,
+  Languages,
+  Upload,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────
@@ -500,6 +503,100 @@ function PaperHeader({ settings, onUpdateSettings }: PaperHeaderProps) {
           </CardContent>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* ── Language Font Settings ── */}
+      <LanguageFontSettings />
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Language Font Settings
+// ─────────────────────────────────────────────────────────────────
+
+function LanguageFontSettings() {
+  const { fonts, setFont } = useInputMethodStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadTarget, setUploadTarget] = useState<keyof typeof fonts | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const fontLabels: Record<keyof typeof fonts, { label: string; sample: string }> = {
+    english: { label: 'English', sample: 'The quick brown fox' },
+    sinhalaSinglish: { label: 'Sinhala (Singlish)', sample: 'කොළඹ පොළ' },
+    sinhalaWijesekara: { label: 'Sinhala (Wijesekara)', sample: 'කොළඹ පොළ' },
+    tamilUnicode: { label: 'Tamil (Unicode)', sample: 'தமிழ் மொழி' },
+    tamilTypewriter: { label: 'Tamil (Typewriter)', sample: 'தமிழ் மொழி' },
+  };
+
+  const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !uploadTarget) return;
+    setUploading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+      const fontFace = new FontFace(baseName, arrayBuffer);
+      const loaded = await fontFace.load();
+      document.fonts.add(loaded);
+      setFont(uploadTarget, baseName);
+    } catch (err) {
+      console.error('Font upload failed:', err);
+    } finally {
+      setUploading(false);
+      setUploadTarget(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <Card className="mt-4">
+      <CardHeader className="pb-2 pt-3 px-4">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Languages className="h-4 w-4" />
+          Language Font Settings
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Upload and assign fonts for each input language. The selected font applies automatically when you switch language.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-4 pb-3">
+        <div className="space-y-3">
+          {(Object.entries(fontLabels) as [keyof typeof fonts, { label: string; sample: string }][]).map(
+            ([key, { label, sample }]) => (
+              <div key={key} className="flex items-center gap-3">
+                <Label className="text-xs font-medium w-40 shrink-0">{label}</Label>
+                <div
+                  className="flex-1 h-8 rounded-md border border-border px-2 flex items-center justify-between bg-muted/30"
+                  style={{ fontFamily: fonts[key] === 'sans' ? 'sans-serif' : `"${fonts[key]}", sans-serif` }}
+                >
+                  <span className="text-xs truncate">{fonts[key]}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 shrink-0"
+                    onClick={() => {
+                      setUploadTarget(key);
+                      setTimeout(() => fileInputRef.current?.click(), 0);
+                    }}
+                  >
+                    <Upload className="h-3 w-3" />
+                  </Button>
+                </div>
+                <span className="text-xs text-muted-foreground hidden sm:block max-w-[150px] truncate" style={{ fontFamily: fonts[key] === 'sans' ? 'sans-serif' : `"${fonts[key]}", sans-serif` }}>
+                  {sample}
+                </span>
+              </div>
+            ),
+          )}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="font"
+          accept=".ttf,.otf,.woff,.woff2"
+          className="hidden"
+          onChange={handleFontUpload}
+        />
+      </CardContent>
     </Card>
   );
 }
