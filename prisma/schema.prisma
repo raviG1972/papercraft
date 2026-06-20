@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,6 +9,8 @@ datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
+
+// ─── User & Post (original) ─────────────────────────────────────────────
 
 model User {
   id        String   @id @default(cuid())
@@ -29,4 +28,131 @@ model Post {
   authorId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── Syllabus Management ────────────────────────────────────────────────
+
+model Syllabus {
+  id        String    @id @default(cuid())
+  title     String
+  subject   String
+  grade     String
+  chapters  Chapter[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Chapter {
+  id         String   @id @default(cuid())
+  name       String
+  order      Int
+  syllabusId String
+  syllabus   Syllabus @relation(fields: [syllabusId], references: [id], onDelete: Cascade)
+  lessons    Lesson[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Lesson {
+  id         String   @id @default(cuid())
+  name       String
+  description String?
+  order      Int
+  chapterId  String
+  chapter    Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── Question Papers ────────────────────────────────────────────────────
+
+model QuestionPaper {
+  id          String         @id @default(cuid())
+  title       String
+  subject     String
+  grade       String?
+  instructions String?
+  duration    Int?
+  totalMarks  Int?
+  sections    PaperSection[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model PaperSection {
+  id       String          @id @default(cuid())
+  name     String
+  order    Int
+  paperId  String
+  paper    QuestionPaper   @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  questions PaperQuestion[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model PaperQuestion {
+  id              String       @id @default(cuid())
+  content         String
+  marks           Int?
+  order           Int          @default(0)
+  sourceType      String       @default("manual")
+  suggestedAnswer String?
+  markScheme      String?
+  difficulty      String?
+  sectionId       String
+  section         PaperSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+// ─── Question Bank ──────────────────────────────────────────────────────
+
+model QuestionBank {
+  id               String   @id @default(cuid())
+  text             String
+  type             String   @default("short")
+  subject          String?
+  grade            String?
+  language         String   @default("english")
+  marks            Int?
+  difficulty       String?
+  options          String?
+  correctAnswer    String?
+  randomizeOptions Boolean  @default(true)
+  suggestedAnswer  String?
+  markScheme       String?
+  sourceNote       String?
+  tags             QuestionTag[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Tag {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  color     String?
+  questions QuestionTag[]
+  createdAt DateTime       @default(now())
+}
+
+model QuestionTag {
+  questionId String
+  tagId      String
+  question   QuestionBank  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  tag        Tag           @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, tagId])
+}
+
+// ─── OCR Sessions ──────────────────────────────────────────────────────
+
+model OcrSession {
+  id           String   @id @default(cuid())
+  title        String
+  ocrText      String
+  originalText String
+  fileNames    String   // JSON array of file names
+  language     String   @default("english")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

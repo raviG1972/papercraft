@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable react-hooks/refs */
+
 import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { getSuggestions, type Suggestion } from '@/lib/transliteration';
 import type { TransliterationMode } from '@/lib/transliteration';
