@@ -307,11 +307,11 @@ function _createMathNodeViewInner(
 
   const inner = document.createElement('span');
   inner.style.display = 'inline-block';
-  inner.style.cursor = 'pointer';
+  inner.style.cursor = 'text';
   inner.style.padding = '2px 4px';
   inner.style.borderRadius = '4px';
   inner.style.transition = 'background-color 0.15s';
-  inner.title = 'Double-click to edit';
+  inner.title = 'Click to edit';
 
   dom.appendChild(inner);
 
@@ -389,7 +389,7 @@ function _createMathNodeViewInner(
         ignoreBlur = true;
         editing = false;
         renderMath();
-        inner.style.cursor = 'pointer';
+        inner.style.cursor = 'text';
       }
     });
 
@@ -399,6 +399,9 @@ function _createMathNodeViewInner(
     });
   }
 
+  // Single-click to edit — more intuitive than double-click
+  inner.addEventListener('click', () => startEditing());
+
   // Hover effect
   inner.addEventListener('mouseenter', () => {
     if (!editing) inner.style.backgroundColor = 'rgba(0,0,0,0.04)';
@@ -406,9 +409,6 @@ function _createMathNodeViewInner(
   inner.addEventListener('mouseleave', () => {
     if (!editing) inner.style.backgroundColor = '';
   });
-
-  // Double-click to edit
-  inner.addEventListener('dblclick', () => startEditing());
 
   // Initial render
   renderMath();

@@ -19,7 +19,8 @@ import {
   Sigma,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useEffect, useRef } from 'react';
+import { MathTemplateDialog } from './math-template-dialog';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ─── Toolbar Button (declared outside component) ─────────────────
 
@@ -222,30 +223,13 @@ interface MathEditorProps {
 }
 
 /**
- * Insert a math node at the current cursor position.
- */
-function insertMath(editor: Editor, displayMode = false) {
-  const placeholder = displayMode
-    ? '\\frac{a}{b}'
-    : 'x^2';
-
-  editor
-    .chain()
-    .focus()
-    .insertContent({
-      type: 'math',
-      attrs: { latex: placeholder, displayMode },
-    })
-    .run();
-}
-
-/**
  * Rich text editor with KaTeX math support.
  *
+ * - Click Σ to open template picker (inline mode)
+ * - Click □ to open template picker (block mode)
  * - Type `$formula$` for inline math (auto-converts on closing $)
  * - Type `$$formula$$` for display math (auto-converts)
- * - Use the Σ / □ toolbar buttons to insert a math block
- * - Double-click rendered math to edit the LaTeX source
+ * - Click on any math to edit the LaTeX source
  * - Paste from MS Word — text formatting preserved, equations auto-detected
  *   (supports both OMML and MathML formats)
  */
@@ -256,6 +240,13 @@ export function MathEditor({
   minHeight = 'min-h-[180px]',
 }: MathEditorProps) {
   const isInternalUpdate = useRef(false);
+  const [mathDialogOpen, setMathDialogOpen] = useState(false);
+  const [mathDialogDefaultMode, setMathDialogDefaultMode] = useState<'inline' | 'block'>('inline');
+
+  const openMathDialog = useCallback((mode: 'inline' | 'block') => {
+    setMathDialogDefaultMode(mode);
+    setMathDialogOpen(true);
+  }, []);
 
   const editor = useEditor({
     extensions: [
@@ -344,6 +335,21 @@ export function MathEditor({
     };
   }, [editor]);
 
+  const handleTemplateInsert = useCallback(
+    (latex: string, isBlock: boolean) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'math',
+          attrs: { latex, displayMode: isBlock },
+        })
+        .run();
+    },
+    [editor]
+  );
+
   if (!editor) return null;
 
   return (
@@ -397,14 +403,14 @@ export function MathEditor({
         <div className="w-px h-5 bg-border mx-1" />
 
         <ToolbarButton
-          onClick={() => insertMath(editor, false)}
-          title="Insert inline math (Σ)"
+          onClick={() => openMathDialog('inline')}
+          title="Insert inline math (Σ) — opens template picker"
         >
           <Sigma className="h-3.5 w-3.5" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => insertMath(editor, true)}
-          title="Insert display math (□)"
+          onClick={() => openMathDialog('block')}
+          title="Insert display math (□) — opens template picker"
         >
           <Square className="h-3.5 w-3.5" />
         </ToolbarButton>
@@ -429,12 +435,20 @@ export function MathEditor({
         <div className="flex-1" />
 
         <span className="text-[10px] text-muted-foreground px-1 hidden sm:inline">
-          $math$ for inline · $$math$$ for display · double-click to edit
+          Click math to edit · $...$ inline · $$...$$ display
         </span>
       </div>
 
       {/* Editor area */}
       <EditorContent editor={editor} />
+
+      {/* Math template picker dialog */}
+      <MathTemplateDialog
+        open={mathDialogOpen}
+        onOpenChange={setMathDialogOpen}
+        onInsert={handleTemplateInsert}
+        defaultMode={mathDialogDefaultMode}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import katex from 'katex';
 import { mathCategories, mathTemplates, getTemplatesByCategory } from './math-templates';
 import { MathTemplate } from './math-templates';
@@ -21,6 +21,8 @@ interface MathTemplateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onInsert: (latex: string, isBlock: boolean) => void;
+  /** Pre-select inline or block mode when dialog opens */
+  defaultMode?: 'inline' | 'block';
 }
 
 function TemplatePreview({ latex, displayMode = false, className = '' }: { latex: string; displayMode?: boolean; className?: string }) {
@@ -61,11 +63,16 @@ function TemplateCard({ template, onInsert }: { template: MathTemplate; onInsert
   );
 }
 
-export function MathTemplateDialog({ open, onOpenChange, onInsert }: MathTemplateDialogProps) {
+export function MathTemplateDialog({ open, onOpenChange, onInsert, defaultMode }: MathTemplateDialogProps) {
   const [activeCategory, setActiveCategory] = useState('basic');
   const [searchQuery, setSearchQuery] = useState('');
-  const [insertMode, setInsertMode] = useState<'inline' | 'block'>('inline');
+  const [insertMode, setInsertMode] = useState<'inline' | 'block'>(defaultMode || 'inline');
   const [customLatex, setCustomLatex] = useState('');
+
+  // Sync insertMode when defaultMode changes (e.g., Sigma vs Square button)
+  React.useEffect(() => {
+    if (defaultMode) setInsertMode(defaultMode);
+  }, [defaultMode]);
 
   const filteredTemplates = useMemo(() => {
     const templates = getTemplatesByCategory(activeCategory);

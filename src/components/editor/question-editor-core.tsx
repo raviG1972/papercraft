@@ -267,7 +267,7 @@ export default function QuestionEditorCore({
         {/* Hint */}
         <div className="px-3 py-1.5 border-t border-border bg-muted/20">
           <span className="text-[10px] text-muted-foreground">
-            $math$ for inline · $$math$$ for display · double-click to edit
+            $math$ for inline · $$math$$ for display · click to edit
           </span>
         </div>
       </div>
