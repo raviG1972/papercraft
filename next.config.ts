@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   // We only use it client-side via dynamic import, but this prevents
   // any accidental server-side resolution during build.
   serverExternalPackages: ["tesseract.js"],
+  allowedDevOrigins: ["http://127.0.0.1:3000", "http://localhost:3000", "http://21.0.12.29:3000"],
 };
 
 export default nextConfig;

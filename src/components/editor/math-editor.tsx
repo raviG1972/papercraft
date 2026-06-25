@@ -4,8 +4,11 @@ import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import UnderlineExtension from '@tiptap/extension-underline';
 import Placeholder from '@tiptap/extension-placeholder';
-import { MathExtension, ommlToLatex, ommlTextToLatex, mathmlToLatex } from './math-extension';
+import SuperscriptExtension from '@tiptap/extension-superscript';
+import SubscriptExtension from '@tiptap/extension-subscript';
+import { MathExtension } from './math-extension';
 import { DOMParser as ProseDOMParser } from 'prosemirror-model';
+import { hasMathContent, hasInlineMathDelimiters, processMathInPastedHtml, extractTextFromHtml } from '@/lib/word-paste-utils';
 import {
   Bold,
   Italic,
@@ -55,164 +58,6 @@ if (typeof document !== 'undefined' && !document.getElementById('katex-css')) {
   document.head.appendChild(link);
 }
 
-// ─── Attribute escaping for HTML ──────────────────────────────────
-
-function escapeAttr(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/'/g, '&#39;');
-}
-
-// ─── Word HTML cleanup ───────────────────────────────────────────
-
-/**
- * Strip MS Word–specific markup from pasted HTML while preserving
- * basic formatting (bold, italic, underline, lists, headings).
- *
- * IMPORTANT: This does NOT strip <m:oMath> or <math> tags —
- * those are handled BEFORE calling this function.
- */
-function cleanWordHtml(html: string): string {
-  let clean = html;
-
-  // Remove conditional comments
-  clean = clean.replace(/<!--[\s\S]*?-->/g, '');
-
-  // Remove XML namespace declarations
-  clean = clean.replace(/xmlns[:\w]*="[^"]*"/g, '');
-
-  // Remove <style> blocks
-  clean = clean.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-
-  // Remove <meta>, <link>, <?xml> tags
-  clean = clean.replace(/<(?:meta|link|\?xml)[^>]*>/gi, '');
-
-  // Remove v: and o: namespace elements (Word shapes, drawing, office markup)
-  // BUT keep m: namespace elements — they're handled separately before cleanup
-  clean = clean.replace(/<\/?(?:v|o|w):[^>]*>/gi, '');
-
-  // Now remove any remaining m: elements that are NOT oMath/oMathPara
-  // (e.g., m:rPr, m:fPr, etc. that might have been left over)
-  clean = clean.replace(/<\/?m:(?!oMath)[^>]*>/gi, '');
-
-  // Clean style attributes: remove mso-* properties, keep the rest
-  clean = clean.replace(/style="([^"]*)"/gi, (_: string, styles: string) => {
-    const cleaned = styles
-      .split(';')
-      .map((s: string) => s.trim())
-      .filter((s: string) => s && !/\bmso-/i.test(s))
-      .join('; ')
-      .trim();
-    return cleaned ? `style="${cleaned}"` : '';
-  });
-
-  // Clean class attributes: remove Mso* classes, keep the rest
-  clean = clean.replace(/class="([^"]*)"/gi, (_: string, cls: string) => {
-    const cleaned = cls
-      .split(/\s+/)
-      .filter((c: string) => !/^Mso/i.test(c) && !/^mso/i.test(c))
-      .join(' ')
-      .trim();
-    return cleaned ? `class="${cleaned}"` : '';
-  });
-
-  // Remove empty <span> tags
-  clean = clean.replace(/<span[^>]*>\s*<\/span>/gi, '');
-
-  // Remove empty style/class attributes left behind
-  clean = clean.replace(/\s*(style|class)=""/gi, '');
-
-  return clean;
-}
-
-// ─── Math detection helpers ───────────────────────────────────────
-
-/**
- * Check if HTML contains MS Word math content (OMML or MathML).
- */
-function hasWordMathContent(html: string): boolean {
-  // OMML (Office Math Markup Language) — used by desktop MS Word
-  if (/<m:oMath[\s>\/]/i.test(html)) return true;
-  if (/oMathPara/i.test(html)) return true;
-
-  // MathML — used by some Word versions, Google Docs, browsers
-  if (/<math[\s>\/]/i.test(html) && /<\/math\s*>/i.test(html)) return true;
-
-  // Word-specific markers (even without detectable math, Word HTML
-  // needs cleaning to avoid garbage styles)
-  if (/mso-/i.test(html)) return true;
-  if (/xmlns:o\s*=/i.test(html)) return true;
-  if (/class="Mso/i.test(html)) return true;
-
-  return false;
-}
-
-// ─── Process equations in pasted HTML (single-pass) ──────────────
-
-/**
- * Process pasted HTML from MS Word (or other sources) that may contain
- * mathematical equations in OMML or MathML format.
- *
- * Strategy:
- * 1. Replace OMML display equations (oMathPara) with <span data-math-node>
- * 2. Replace OMML inline equations (oMath) with <span data-math-node>
- * 3. Replace MathML equations (<math>) with <span data-math-node>
- * 4. Clean remaining Word HTML
- *
- * Uses single-pass regex replacement with callbacks — no fragile
- * index-matching between extraction and replacement.
- */
-function processMathInPastedHtml(html: string): string {
-  let processed = html;
-
-  // ── Step 1: Replace OMML display equations (oMathPara) ──
-  processed = processed.replace(
-    /<m:oMathPara[^>]*>([\s\S]*?)<\/m:oMathPara>/gi,
-    (match) => {
-      const latex = ommlToLatex(match);
-      // Fallback to plain text if conversion produces nothing useful
-      const finalLatex = latex.trim() || ommlTextToLatex(match).trim();
-      if (!finalLatex) return ''; // Remove empty equations
-      return `<span data-math-node data-latex="${escapeAttr(finalLatex)}" data-display-mode="true"></span>`;
-    }
-  );
-
-  // ── Step 2: Replace OMML inline equations (oMath) ──
-  // Only match oMath that weren't inside oMathPara (already replaced)
-  processed = processed.replace(
-    /<m:oMath[^>]*>([\s\S]*?)<\/m:oMath>/gi,
-    (match) => {
-      const latex = ommlToLatex(match);
-      const finalLatex = latex.trim() || ommlTextToLatex(match).trim();
-      if (!finalLatex) return '';
-      return `<span data-math-node data-latex="${escapeAttr(finalLatex)}" data-display-mode="false"></span>`;
-    }
-  );
-
-  // ── Step 3: Replace MathML equations (<math>...</math>) ──
-  processed = processed.replace(
-    /<math[^>]*>([\s\S]*?)<\/math>/gi,
-    (match) => {
-      const latex = mathmlToLatex(match);
-      if (!latex.trim()) return match; // Keep original if conversion fails
-      // Detect display mode from MathML display attribute
-      const isDisplay = /display\s*=\s*["']?\s*block/i.test(match);
-      return `<span data-math-node data-latex="${escapeAttr(latex.trim())}" data-display-mode="${isDisplay}"></span>`;
-    }
-  );
-
-  // ── Step 4: Handle legacy <math-node> tags (from editor's own output) ──
-  // These are already in the correct format — just ensure they survive cleaning
-
-  // ── Step 5: Clean remaining Word HTML ──
-  processed = cleanWordHtml(processed);
-
-  return processed;
-}
-
 // ─── MathEditor Component ─────────────────────────────────────────
 
 interface MathEditorProps {
@@ -255,6 +100,8 @@ export function MathEditor({
         underline: false,
       }),
       UnderlineExtension,
+      SuperscriptExtension,
+      SubscriptExtension,
       Placeholder.configure({
         placeholder,
       }),
@@ -279,33 +126,47 @@ export function MathEditor({
        */
       handlePaste: (view, event) => {
         const html = event.clipboardData?.getData('text/html');
-        if (!html) return false; // Let default handle plain text paste
+        const plainText = event.clipboardData?.getData('text/plain') || '';
 
-        // Only process content that contains Word/math markup
-        if (!hasWordMathContent(html)) return false;
-
-        try {
-          event.preventDefault();
-
-          // Process equations and clean Word HTML
-          const processedHtml = processMathInPastedHtml(html);
-
-          // Parse the processed HTML into a ProseMirror slice
-          const wrapper = document.createElement('div');
-          wrapper.innerHTML = processedHtml;
-
-          const parser = ProseDOMParser.fromSchema(view.state.schema);
-          const slice = parser.parseSlice(wrapper);
-
-          // Insert the parsed content at the current selection
-          const tr = view.state.tr.replaceSelection(slice);
-          view.dispatch(tr);
-
-          return true; // We handled the paste
-        } catch (err) {
-          console.error('[PaperCraft] Paste processing failed, falling back to default:', err);
-          return false; // Let default handle it
+        // Strategy 1: HTML with math content (OMML, MathML, KaTeX, MathJax, Word)
+        if (html && hasMathContent(html)) {
+          try {
+            event.preventDefault();
+            const processedHtml = processMathInPastedHtml(html);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = processedHtml;
+            const parser = ProseDOMParser.fromSchema(view.state.schema);
+            const slice = parser.parseSlice(wrapper);
+            const tr = view.state.tr.replaceSelection(slice);
+            view.dispatch(tr);
+            return true;
+          } catch (err) {
+            console.error('[PaperCraft] Math paste processing failed:', err);
+          }
         }
+
+        // Strategy 2: HTML paste but plain text has $...$ math
+        if (html && plainText && hasInlineMathDelimiters(plainText)) {
+          const htmlTextContent = extractTextFromHtml(html);
+          const plainMathLen = (plainText.match(/\$[^$]+?\$/g) || []).join('').length;
+          if (plainMathLen > 20 && htmlTextContent.length < plainText.length * 0.6) {
+            try {
+              event.preventDefault();
+              const paragraphs = plainText.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = paragraphs;
+              const parser = ProseDOMParser.fromSchema(view.state.schema);
+              const slice = parser.parseSlice(wrapper);
+              const tr = view.state.tr.replaceSelection(slice);
+              view.dispatch(tr);
+              return true;
+            } catch (err) {
+              console.error('[PaperCraft] Plain text paste fallback failed:', err);
+            }
+          }
+        }
+
+        return false;
       },
     },
     onUpdate: ({ editor }) => {

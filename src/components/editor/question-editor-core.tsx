@@ -3,10 +3,13 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import UnderlineExtension from '@tiptap/extension-underline';
+import SuperscriptExtension from '@tiptap/extension-superscript';
+import SubscriptExtension from '@tiptap/extension-subscript';
 import Placeholder from '@tiptap/extension-placeholder';
-import { MathExtension, ommlToLatex, ommlTextToLatex, mathmlToLatex } from './math-extension';
+import { MathExtension } from './math-extension';
 import { EditorToolbar } from './editor-toolbar';
 import { MathTemplateDialog } from './math-template-dialog';
+import { hasMathContent, hasInlineMathDelimiters, processMathInPastedHtml, extractTextFromHtml } from '@/lib/word-paste-utils';
 import { DOMParser as ProseDOMParser } from 'prosemirror-model';
 import { useEffect, useRef, useState, useCallback } from 'react';
 
@@ -28,110 +31,6 @@ interface QuestionEditorCoreProps {
   maxMarks?: number;
   showHeader?: boolean;
   onChange?: (content: string, html: string) => void;
-}
-
-// ─── Attribute escaping for HTML ───────────────────────────────────
-
-function escapeAttr(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/'/g, '&#39;');
-}
-
-// ─── Word HTML cleanup ──────────────────────────────────────────────
-
-function cleanWordHtml(html: string): string {
-  let clean = html;
-
-  clean = clean.replace(/<!--[\s\S]*?-->/g, '');
-  clean = clean.replace(/xmlns[:\w]*="[^"]*"/g, '');
-  clean = clean.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-  clean = clean.replace(/<(?:meta|link|\?xml)[^>]*>/gi, '');
-  clean = clean.replace(/<\/?(?:v|o|w):[^>]*>/gi, '');
-  clean = clean.replace(/<\/?m:(?!oMath)[^>]*>/gi, '');
-
-  clean = clean.replace(/style="([^"]*)"/gi, (_: string, styles: string) => {
-    const cleaned = styles
-      .split(';')
-      .map((s: string) => s.trim())
-      .filter((s: string) => s && !/\bmso-/i.test(s))
-      .join('; ')
-      .trim();
-    return cleaned ? `style="${cleaned}"` : '';
-  });
-
-  clean = clean.replace(/class="([^"]*)"/gi, (_: string, cls: string) => {
-    const cleaned = cls
-      .split(/\s+/)
-      .filter((c: string) => !/^Mso/i.test(c) && !/^mso/i.test(c))
-      .join(' ')
-      .trim();
-    return cleaned ? `class="${cleaned}"` : '';
-  });
-
-  clean = clean.replace(/<span[^>]*>\s*<\/span>/gi, '');
-  clean = clean.replace(/\s*(style|class)=""/gi, '');
-
-  return clean;
-}
-
-// ─── Math detection helpers ─────────────────────────────────────────
-
-function hasWordMathContent(html: string): boolean {
-  if (/<m:oMath[\s>\/]/i.test(html)) return true;
-  if (/oMathPara/i.test(html)) return true;
-  if (/<math[\s>\/]/i.test(html) && /<\/math\s*>/i.test(html)) return true;
-  if (/mso-/i.test(html)) return true;
-  if (/xmlns:o\s*=/i.test(html)) return true;
-  if (/class="Mso/i.test(html)) return true;
-  return false;
-}
-
-// ─── Process equations in pasted HTML (single-pass) ──────────────────
-
-function processMathInPastedHtml(html: string): string {
-  let processed = html;
-
-  // Replace OMML display equations (oMathPara)
-  processed = processed.replace(
-    /<m:oMathPara[^>]*>([\s\S]*?)<\/m:oMathPara>/gi,
-    (match) => {
-      const latex = ommlToLatex(match);
-      const finalLatex = latex.trim() || ommlTextToLatex(match).trim();
-      if (!finalLatex) return '';
-      return `<span data-math-node data-latex="${escapeAttr(finalLatex)}" data-display-mode="true"></span>`;
-    }
-  );
-
-  // Replace OMML inline equations (oMath)
-  processed = processed.replace(
-    /<m:oMath[^>]*>([\s\S]*?)<\/m:oMath>/gi,
-    (match) => {
-      const latex = ommlToLatex(match);
-      const finalLatex = latex.trim() || ommlTextToLatex(match).trim();
-      if (!finalLatex) return '';
-      return `<span data-math-node data-latex="${escapeAttr(finalLatex)}" data-display-mode="false"></span>`;
-    }
-  );
-
-  // Replace MathML equations
-  processed = processed.replace(
-    /<math[^>]*>([\s\S]*?)<\/math>/gi,
-    (match) => {
-      const latex = mathmlToLatex(match);
-      if (!latex.trim()) return match;
-      const isDisplay = /display\s*=\s*["']?\s*block/i.test(match);
-      return `<span data-math-node data-latex="${escapeAttr(latex.trim())}" data-display-mode="${isDisplay}"></span>`;
-    }
-  );
-
-  // Clean remaining Word HTML
-  processed = cleanWordHtml(processed);
-
-  return processed;
 }
 
 // ─── QuestionEditorCore Component ─────────────────────────────────────
@@ -161,6 +60,8 @@ export default function QuestionEditorCore({
         underline: false,
       }),
       UnderlineExtension,
+      SuperscriptExtension,
+      SubscriptExtension,
       Placeholder.configure({
         placeholder: 'Type your question here…\n\nUse $...$ for inline math: e.g. $x^2 + y^2$\nUse $$...$$ for display math:\n$$\\frac{a}{b} + c$$\n\nYou can also paste directly from MS Word!',
       }),
@@ -174,24 +75,54 @@ export default function QuestionEditorCore({
 
       handlePaste: (view, event) => {
         const html = event.clipboardData?.getData('text/html');
-        if (!html) return false;
+        const plainText = event.clipboardData?.getData('text/plain') || '';
 
-        if (!hasWordMathContent(html)) return false;
-
-        try {
-          event.preventDefault();
-          const processedHtml = processMathInPastedHtml(html);
-          const wrapper = document.createElement('div');
-          wrapper.innerHTML = processedHtml;
-          const parser = ProseDOMParser.fromSchema(view.state.schema);
-          const slice = parser.parseSlice(wrapper);
-          const tr = view.state.tr.replaceSelection(slice);
-          view.dispatch(tr);
-          return true;
-        } catch (err) {
-          console.error('[PaperCraft] Paste processing failed, falling back to default:', err);
-          return false;
+        // ── Strategy 1: HTML with math content (OMML, MathML, KaTeX, MathJax, Word) ──
+        if (html && hasMathContent(html)) {
+          try {
+            event.preventDefault();
+            const processedHtml = processMathInPastedHtml(html);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = processedHtml;
+            const parser = ProseDOMParser.fromSchema(view.state.schema);
+            const slice = parser.parseSlice(wrapper);
+            const tr = view.state.tr.replaceSelection(slice);
+            view.dispatch(tr);
+            return true;
+          } catch (err) {
+            console.error('[PaperCraft] Math paste processing failed:', err);
+            // Fall through to plain text handling below
+          }
         }
+
+        // ── Strategy 2: HTML paste but plain text has $...$ math ──
+        // This handles the case where the HTML version strips/loses the math
+        // but the plain text version preserves the $...$ delimiters.
+        if (html && plainText && hasInlineMathDelimiters(plainText)) {
+          const htmlTextContent = extractTextFromHtml(html);
+          const plainMathLen = (plainText.match(/\$[^$]+?\$/g) || []).join('').length;
+
+          // If plain text has significant math content that HTML lost, use plain text
+          if (plainMathLen > 20 && htmlTextContent.length < plainText.length * 0.6) {
+            try {
+              event.preventDefault();
+              // Insert as plain paragraphs
+              const paragraphs = plainText.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = paragraphs;
+              const parser = ProseDOMParser.fromSchema(view.state.schema);
+              const slice = parser.parseSlice(wrapper);
+              const tr = view.state.tr.replaceSelection(slice);
+              view.dispatch(tr);
+              return true;
+            } catch (err) {
+              console.error('[PaperCraft] Plain text paste fallback failed:', err);
+            }
+          }
+        }
+
+        // ── Strategy 3: Let TipTap handle the paste normally ──
+        return false;
       },
     },
     onUpdate: ({ editor: ed }) => {
@@ -267,7 +198,7 @@ export default function QuestionEditorCore({
         {/* Hint */}
         <div className="px-3 py-1.5 border-t border-border bg-muted/20">
           <span className="text-[10px] text-muted-foreground">
-            $math$ for inline · $$math$$ for display · click to edit
+            $math$ for inline · $$math$$ for display · paste from Word to convert
           </span>
         </div>
       </div>
